@@ -68,6 +68,21 @@ extern crate serde;
 extern crate serde_derive;
 extern crate serde_json;
 
+pub mod errors;
+pub use errors::{Error, ErrorKind, Result};
+
+pub mod address;
+pub use address::{Address, AddressRequest, LandLotAddress, RoadAddress};
+
+pub mod coord;
+pub use coord::{CoordRequest, Region};
+
+pub mod keyword;
+pub use keyword::{KeywordRequest, Place};
+
+pub mod category;
+pub use category::{CategoryGroup, CategoryRequest};
+
 use std::collections::HashSet;
 use std::hash::Hash;
 use std::cmp::Eq;
@@ -175,18 +190,3 @@ where
         }
     }
 }
-
-pub mod error;
-pub use error::{Error, ErrorKind, Result};
-
-pub mod address;
-pub use address::{Address, AddressRequest, LandLotAddress, RoadAddress};
-
-pub mod coord;
-pub use coord::{CoordRequest, Region};
-
-pub mod keyword;
-pub use keyword::{KeywordRequest, Place};
-
-pub mod category;
-pub use category::{CategoryGroup, CategoryRequest};

@@ -80,7 +80,7 @@ impl FromStr for CategoryGroup {
             "CE7" => Cafe,
             "HP8" => Hospital,
             "PM9" => Pharmacy,
-            _ => bail!(ErrorKind::CategoryGroupParsingFailed),
+            _ => bail!(ErrorKind::ParseCategoryGroup(s.to_owned())),
         })
     }
 }

@@ -9,9 +9,9 @@ error_chain!{
     }
     errors {
         /// When category group code parsing failed
-        CategoryGroupParsingFailed {
-            description("Category group parsing failed")
-            display("Category group parsing failed")
+        ParseCategoryGroup(s: String) {
+            description("Cannot parse category group from string")
+            display("Error during parsing category group from : {}", s)
         }
     }
 }
