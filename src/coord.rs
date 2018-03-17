@@ -1,4 +1,4 @@
-use super::{request, Address, Element, LandLotAddress, Req, ReqOnce, Response, Result, RoadAddress};
+use super::{Address, Element, LandLotAddress, Req, ReqOnce, Response, Result, RoadAddress};
 use std::hash::{Hash, Hasher};
 use std::cmp::{Eq, PartialEq};
 use std::convert::{From, Into};
@@ -106,31 +106,43 @@ impl CoordRequest {
 }
 
 impl ReqOnce<Region> for CoordRequest {
+    fn to_url(&self) -> String {
+        self.to_url_with_base("https://dapi.kakao.com/v2/local/geo/coord2regioncode.json")
+    }
+
+    fn get_app_key(&self) -> &str {
+        &self.app_key
+    }
+
     fn page(&mut self, page: usize) -> &mut Self {
         self.page = page;
         self
     }
 
-    fn request(&self) -> Result<Vec<Region>> {
-        request(
-            &self.to_url_with_base("https://dapi.kakao.com/v2/local/geo/coord2regioncode.json"),
-            &self.app_key,
-        ).and_then(|v| serde_json::from_value::<Coord2RegionResponse>(v).map_err(|e| e.into()))
+    fn deserialize(value: serde_json::Value) -> Result<Vec<Region>> {
+        serde_json::from_value::<Coord2RegionResponse>(value)
+            .map_err(|e| e.into())
             .map(|r| r.documents.into_iter().map(|r| r.into()).collect())
     }
 }
 
 impl ReqOnce<Address> for CoordRequest {
+    fn to_url(&self) -> String {
+        self.to_url_with_base("https://dapi.kakao.com/v2/local/geo/coord2address.json")
+    }
+
+    fn get_app_key(&self) -> &str {
+        &self.app_key
+    }
+
     fn page(&mut self, page: usize) -> &mut Self {
         self.page = page;
         self
     }
 
-    fn request(&self) -> Result<Vec<Address>> {
-        request(
-            &self.to_url_with_base("https://dapi.kakao.com/v2/local/geo/coord2address.json"),
-            &self.app_key,
-        ).and_then(|v| serde_json::from_value::<Coord2AddressResponse>(v).map_err(|e| e.into()))
+    fn deserialize(value: serde_json::Value) -> Result<Vec<Address>> {
+        serde_json::from_value::<Coord2AddressResponse>(value)
+            .map_err(|e| e.into())
             .map(|r| {
                 r.documents
                     .into_iter()

@@ -1,5 +1,5 @@
 use std::str::FromStr;
-use super::{request, Error, ErrorKind, Place, Req, ReqOnce, Response, Result, Sort};
+use super::{Error, ErrorKind, Place, Req, ReqOnce, Response, Result, Sort};
 use std::convert::Into;
 use serde_json;
 
@@ -156,6 +156,12 @@ impl CategoryRequest {
         self
     }
 
+    pub fn get(&self) -> Response<Place, Self> {
+        Req::<Place>::get(self)
+    }
+}
+
+impl ReqOnce<Place> for CategoryRequest {
     fn to_url(&self) -> String {
         let mut s = String::from("https://dapi.kakao.com/v2/local/search/category.json");
         s = s + "?category_group_code=" + self.category_group.to_code();
@@ -181,20 +187,18 @@ impl CategoryRequest {
         s
     }
 
-    pub fn get(&self) -> Response<Place, Self> {
-        Req::<Place>::get(self)
+    fn get_app_key(&self) -> &str {
+        &self.app_key
     }
-}
 
-impl ReqOnce<Place> for CategoryRequest {
     fn page(&mut self, page: usize) -> &mut Self {
         self.page = page;
         self
     }
 
-    fn request(&self) -> Result<Vec<Place>> {
-        request(&self.to_url(), &self.app_key)
-            .and_then(|v| serde_json::from_value::<RawResponse>(v).map_err(|e| e.into()))
+    fn deserialize(value: serde_json::Value) -> Result<Vec<Place>> {
+        serde_json::from_value::<RawResponse>(value)
+            .map_err(|e| e.into())
             .map(|r| r.documents.into_iter().map(|r| r.into()).collect())
     }
 }

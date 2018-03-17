@@ -104,9 +104,17 @@ pub trait ReqOnce<E>
 where
     E: Element,
 {
+    fn to_url(&self) -> String;
+
+    fn get_app_key(&self) -> &str;
+
     fn page(&mut self, page: usize) -> &mut Self;
 
-    fn request(&self) -> Result<Vec<E>>;
+    fn deserialize(value: serde_json::Value) -> Result<Vec<E>>;
+
+    fn request(&self) -> Result<Vec<E>> {
+        request(&self.to_url(), &self.get_app_key()).and_then(|v| Self::deserialize(v))
+    }
 }
 
 pub trait Req<E>

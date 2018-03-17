@@ -1,4 +1,4 @@
-use super::{request, CategoryGroup, Element, Req, ReqOnce, Response, Result, Sort};
+use super::{CategoryGroup, Element, Req, ReqOnce, Response, Result, Sort};
 use std::hash::{Hash, Hasher};
 use std::cmp::{Eq, PartialEq};
 use std::convert::From;
@@ -103,6 +103,12 @@ impl KeywordRequest {
         self
     }
 
+    pub fn get(&self) -> Response<Place, Self> {
+        Req::<Place>::get(self)
+    }
+}
+
+impl ReqOnce<Place> for KeywordRequest {
     fn to_url(&self) -> String {
         let mut s = String::from("https://dapi.kakao.com/v2/local/search/keyword.json");
         s = s + "?query=" + &self.query;
@@ -132,20 +138,18 @@ impl KeywordRequest {
         s
     }
 
-    pub fn get(&self) -> Response<Place, Self> {
-        Req::<Place>::get(self)
+    fn get_app_key(&self) -> &str {
+        &self.app_key
     }
-}
 
-impl ReqOnce<Place> for KeywordRequest {
     fn page(&mut self, page: usize) -> &mut Self {
         self.page = page;
         self
     }
 
-    fn request(&self) -> Result<Vec<Place>> {
-        request(&self.to_url(), &self.app_key)
-            .and_then(|v| serde_json::from_value::<RawResponse>(v).map_err(|e| e.into()))
+    fn deserialize(value: serde_json::Value) -> Result<Vec<Place>> {
+        serde_json::from_value::<RawResponse>(value)
+            .map_err(|e| e.into())
             .map(|r| r.documents.into_iter().map(|r| r.into()).collect())
     }
 }
