@@ -1,5 +1,6 @@
 # daummap-rs
 
+[![circleci](https://circleci.com/gh/pbzweihander/daummap-rs.svg?style=shield)](https://circleci.com/gh/pbzweihander/daumdic-rs)
 [![crate.io](https://img.shields.io/crates/v/daummap.svg)](https://crates.io/crates/daummap)
 [![docs.rs](https://docs.rs/daummap/badge.svg)](https://docs.rs/daummap)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE-MIT)
