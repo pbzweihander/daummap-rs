@@ -4,7 +4,7 @@
 use {daummap, dotenv::dotenv, futures::prelude::*, std::env::var};
 
 fn get_key() -> String {
-    dotenv().unwrap();
+    dotenv().ok();
     var("APP_KEY").unwrap()
 }
 

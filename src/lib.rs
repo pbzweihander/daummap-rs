@@ -8,7 +8,7 @@
 //!
 //! ```
 //! # use futures::prelude::*;
-//! # dotenv::dotenv();
+//! # dotenv::dotenv().ok();
 //! # let key = std::env::var("APP_KEY").unwrap();
 //! # #[allow(non_snake_case)]
 //! # let APP_KEY = &key;
@@ -22,7 +22,7 @@
 //!
 //! ```
 //! # use futures::prelude::*;
-//! # dotenv::dotenv();
+//! # dotenv::dotenv().ok();
 //! # let key = std::env::var("APP_KEY").unwrap();
 //! # #[allow(non_snake_case)]
 //! # let APP_KEY = &key;
@@ -36,7 +36,7 @@
 //!
 //! ```
 //! # use futures::prelude::*;
-//! # dotenv::dotenv();
+//! # dotenv::dotenv().ok();
 //! # let key = std::env::var("APP_KEY").unwrap();
 //! # #[allow(non_snake_case)]
 //! # let APP_KEY = &key;
@@ -51,7 +51,7 @@
 //!
 //! ```
 //! # use futures::prelude::*;
-//! # dotenv::dotenv();
+//! # dotenv::dotenv().ok();
 //! # let key = std::env::var("APP_KEY").unwrap();
 //! # #[allow(non_snake_case)]
 //! # let APP_KEY = &key;
@@ -68,7 +68,7 @@
 //!
 //! ```
 //! # use futures::prelude::*;
-//! # dotenv::dotenv();
+//! # dotenv::dotenv().ok();
 //! # let key = std::env::var("APP_KEY").unwrap();
 //! # #[allow(non_snake_case)]
 //! # let APP_KEY = &key;
