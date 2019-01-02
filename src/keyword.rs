@@ -1,14 +1,19 @@
-use super::{CategoryGroup, Element, Req, ReqOnce, Response, Result, Sort};
-use std::hash::{Hash, Hasher};
-use std::cmp::{Eq, PartialEq};
-use std::convert::From;
-use serde_json;
+use {
+    crate::{CategoryGroup, Element, Req, ReqOnce, Response, Sort},
+    failure::Error,
+    serde_derive::Deserialize,
+    serde_json,
+    std::{
+        cmp::{Eq, PartialEq},
+        convert::From,
+        hash::{Hash, Hasher},
+    },
+};
 
 #[derive(Clone)]
 pub struct KeywordRequest {
     app_key: String,
     query: String,
-    page: usize,
     category_group: Option<CategoryGroup>,
     longitude: Option<f32>,
     latitude: Option<f32>,
@@ -57,7 +62,6 @@ impl KeywordRequest {
         KeywordRequest {
             app_key: app_key.to_owned(),
             query: query.to_owned(),
-            page: 1,
             category_group: None,
             longitude: None,
             latitude: None,
@@ -109,10 +113,14 @@ impl KeywordRequest {
 }
 
 impl ReqOnce<Place> for KeywordRequest {
-    fn to_url(&self) -> String {
-        let mut s = String::from("https://dapi.kakao.com/v2/local/search/keyword.json");
-        s = s + "?query=" + &self.query;
-        s = s + "&page=" + &self.page.to_string();
+    fn to_url(&self, page: usize) -> String {
+        use crate::encode;
+
+        let mut s = format!(
+            "https://dapi.kakao.com/v2/local/search/keyword.json?query={}&page={}",
+            encode(&self.query),
+            page
+        );
         if let Some(ref c) = self.category_group {
             s = s + "&category_group_code=" + c.to_code();
         }
@@ -130,10 +138,12 @@ impl ReqOnce<Place> for KeywordRequest {
         }
         if let Some(ref ss) = self.sort {
             use self::Sort::*;
-            s = s + "&sort=" + match *ss {
-                Accuracy => "accuracy",
-                Distance => "distance",
-            }
+            s = s
+                + "&sort="
+                + match *ss {
+                    Accuracy => "accuracy",
+                    Distance => "distance",
+                }
         }
         s
     }
@@ -142,12 +152,7 @@ impl ReqOnce<Place> for KeywordRequest {
         &self.app_key
     }
 
-    fn page(&mut self, page: usize) -> &mut Self {
-        self.page = page;
-        self
-    }
-
-    fn deserialize(value: serde_json::Value) -> Result<Vec<Place>> {
+    fn deserialize(value: serde_json::Value) -> Result<Vec<Place>, Error> {
         serde_json::from_value::<RawResponse>(value)
             .map_err(|e| e.into())
             .map(|r| r.documents.into_iter().map(|r| r.into()).collect())

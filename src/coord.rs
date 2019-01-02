@@ -1,8 +1,14 @@
-use super::{Address, Element, LandLotAddress, Req, ReqOnce, Response, Result, RoadAddress};
-use std::hash::{Hash, Hasher};
-use std::cmp::{Eq, PartialEq};
-use std::convert::{From, Into};
-use serde_json;
+use {
+    crate::{Address, Element, LandLotAddress, Req, ReqOnce, Response, RoadAddress},
+    failure::Error,
+    serde_derive::Deserialize,
+    serde_json,
+    std::{
+        cmp::{Eq, PartialEq},
+        convert::{From, Into},
+        hash::{Hash, Hasher},
+    },
+};
 
 #[derive(Deserialize)]
 struct Coord2AddressDocument {
@@ -25,7 +31,6 @@ pub struct CoordRequest {
     app_key: String,
     longitude: f32,
     latitude: f32,
-    page: usize,
 }
 
 #[derive(Deserialize)]
@@ -84,16 +89,14 @@ impl CoordRequest {
             app_key: app_key.to_owned(),
             longitude,
             latitude,
-            page: 1,
         }
     }
 
-    fn to_url_with_base(&self, base_url: &str) -> String {
-        let mut s = String::from(base_url);
-        s = s + "?x=" + &self.longitude.to_string();
-        s = s + "&y=" + &self.latitude.to_string();
-        s = s + "&page=" + &self.page.to_string();
-        s
+    fn to_url_with_base(&self, base_url: &str, page: usize) -> String {
+        format!(
+            "{}?x={}&y={}&page={}",
+            base_url, self.longitude, self.latitude, page
+        )
     }
 
     pub fn get_region(&self) -> Response<Region, Self> {
@@ -106,20 +109,18 @@ impl CoordRequest {
 }
 
 impl ReqOnce<Region> for CoordRequest {
-    fn to_url(&self) -> String {
-        self.to_url_with_base("https://dapi.kakao.com/v2/local/geo/coord2regioncode.json")
+    fn to_url(&self, page: usize) -> String {
+        self.to_url_with_base(
+            "https://dapi.kakao.com/v2/local/geo/coord2regioncode.json",
+            page,
+        )
     }
 
     fn get_app_key(&self) -> &str {
         &self.app_key
     }
 
-    fn page(&mut self, page: usize) -> &mut Self {
-        self.page = page;
-        self
-    }
-
-    fn deserialize(value: serde_json::Value) -> Result<Vec<Region>> {
+    fn deserialize(value: serde_json::Value) -> Result<Vec<Region>, Error> {
         serde_json::from_value::<Coord2RegionResponse>(value)
             .map_err(|e| e.into())
             .map(|r| r.documents.into_iter().map(|r| r.into()).collect())
@@ -127,20 +128,18 @@ impl ReqOnce<Region> for CoordRequest {
 }
 
 impl ReqOnce<Address> for CoordRequest {
-    fn to_url(&self) -> String {
-        self.to_url_with_base("https://dapi.kakao.com/v2/local/geo/coord2address.json")
+    fn to_url(&self, page: usize) -> String {
+        self.to_url_with_base(
+            "https://dapi.kakao.com/v2/local/geo/coord2address.json",
+            page,
+        )
     }
 
     fn get_app_key(&self) -> &str {
         &self.app_key
     }
 
-    fn page(&mut self, page: usize) -> &mut Self {
-        self.page = page;
-        self
-    }
-
-    fn deserialize(value: serde_json::Value) -> Result<Vec<Address>> {
+    fn deserialize(value: serde_json::Value) -> Result<Vec<Address>, Error> {
         serde_json::from_value::<Coord2AddressResponse>(value)
             .map_err(|e| e.into())
             .map(|r| {

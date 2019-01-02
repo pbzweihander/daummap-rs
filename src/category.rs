@@ -1,7 +1,10 @@
-use std::str::FromStr;
-use super::{Error, ErrorKind, Place, Req, ReqOnce, Response, Result, Sort};
-use std::convert::Into;
-use serde_json;
+use {
+    crate::{ParseCategoryGroup, Place, Req, ReqOnce, Response, Sort},
+    failure::Error,
+    serde_derive::Deserialize,
+    serde_json,
+    std::{convert::Into, str::FromStr},
+};
 
 #[derive(Clone)]
 pub enum CategoryGroup {
@@ -29,7 +32,6 @@ pub enum CategoryGroup {
 pub struct CategoryRequest {
     app_key: String,
     category_group: CategoryGroup,
-    page: usize,
     longitude: Option<f32>,
     latitude: Option<f32>,
     radius: Option<usize>,
@@ -59,8 +61,8 @@ struct RawPlace {
 
 impl FromStr for CategoryGroup {
     type Err = Error;
-    fn from_str(s: &str) -> Result<Self> {
-        use CategoryGroup::*;
+    fn from_str(s: &str) -> Result<Self, Error> {
+        use crate::CategoryGroup::*;
         Ok(match s {
             "MT1" => Mart,
             "CS2" => ConvStore,
@@ -80,14 +82,14 @@ impl FromStr for CategoryGroup {
             "CE7" => Cafe,
             "HP8" => Hospital,
             "PM9" => Pharmacy,
-            _ => bail!(ErrorKind::ParseCategoryGroup(s.to_owned())),
+            _ => return Err(ParseCategoryGroup(s.to_owned()).into()),
         })
     }
 }
 
 impl CategoryGroup {
     pub fn to_code<'a>(&self) -> &'a str {
-        use CategoryGroup::*;
+        use crate::CategoryGroup::*;
         match *self {
             Mart => "MT1",
             ConvStore => "CS2",
@@ -122,7 +124,6 @@ impl CategoryRequest {
         CategoryRequest {
             app_key: app_key.to_owned(),
             category_group,
-            page: 1,
             longitude: Some(longitude),
             latitude: Some(latitude),
             radius: Some(radius),
@@ -142,7 +143,6 @@ impl CategoryRequest {
         CategoryRequest {
             app_key: app_key.to_owned(),
             category_group,
-            page: 1,
             longitude: None,
             latitude: None,
             radius: None,
@@ -162,9 +162,12 @@ impl CategoryRequest {
 }
 
 impl ReqOnce<Place> for CategoryRequest {
-    fn to_url(&self) -> String {
-        let mut s = String::from("https://dapi.kakao.com/v2/local/search/category.json");
-        s = s + "?category_group_code=" + self.category_group.to_code();
+    fn to_url(&self, page: usize) -> String {
+        let mut s = format!(
+            "https://dapi.kakao.com/v2/local/search/category.json?category_group_code={}&page={}",
+            self.category_group.to_code(),
+            page
+        );
         if let Some(x) = self.longitude {
             s = s + "&x=" + &x.to_string();
         }
@@ -179,10 +182,12 @@ impl ReqOnce<Place> for CategoryRequest {
         }
         if let Some(ref ss) = self.sort {
             use self::Sort::*;
-            s = s + "&sort=" + match *ss {
-                Accuracy => "accuracy",
-                Distance => "distance",
-            }
+            s = s
+                + "&sort="
+                + match *ss {
+                    Accuracy => "accuracy",
+                    Distance => "distance",
+                }
         }
         s
     }
@@ -191,12 +196,7 @@ impl ReqOnce<Place> for CategoryRequest {
         &self.app_key
     }
 
-    fn page(&mut self, page: usize) -> &mut Self {
-        self.page = page;
-        self
-    }
-
-    fn deserialize(value: serde_json::Value) -> Result<Vec<Place>> {
+    fn deserialize(value: serde_json::Value) -> Result<Vec<Place>, Error> {
         serde_json::from_value::<RawResponse>(value)
             .map_err(|e| e.into())
             .map(|r| r.documents.into_iter().map(|r| r.into()).collect())

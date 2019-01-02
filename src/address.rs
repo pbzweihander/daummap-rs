@@ -1,14 +1,19 @@
-use super::{Element, Req, ReqOnce, Response, Result};
-use std::hash::{Hash, Hasher};
-use std::cmp::{Eq, PartialEq};
-use std::convert::From;
-use serde_json;
+use {
+    crate::{Element, Req, ReqOnce, Response},
+    failure::Error,
+    serde_derive::Deserialize,
+    serde_json,
+    std::{
+        cmp::{Eq, PartialEq},
+        convert::From,
+        hash::{Hash, Hasher},
+    },
+};
 
 #[derive(Clone)]
 pub struct AddressRequest {
     app_key: String,
     query: String,
-    page: usize,
 }
 
 #[derive(Clone)]
@@ -99,7 +104,6 @@ impl AddressRequest {
         AddressRequest {
             app_key: app_key.to_owned(),
             query: query.to_owned(),
-            page: 1,
         }
     }
 
@@ -109,23 +113,20 @@ impl AddressRequest {
 }
 
 impl ReqOnce<Address> for AddressRequest {
-    fn to_url(&self) -> String {
-        let mut s = String::from("https://dapi.kakao.com/v2/local/search/address.json?query=")
-            + &self.query;
-        s = s + "&page=" + &self.page.to_string();
-        s
+    fn to_url(&self, page: usize) -> String {
+        use crate::encode;
+        format!(
+            "https://dapi.kakao.com/v2/local/search/address.json?query={}?page={}",
+            encode(&self.query),
+            page
+        )
     }
 
     fn get_app_key(&self) -> &str {
         &self.app_key
     }
 
-    fn page(&mut self, page: usize) -> &mut Self {
-        self.page = page;
-        self
-    }
-
-    fn deserialize(value: serde_json::Value) -> Result<Vec<Address>> {
+    fn deserialize(value: serde_json::Value) -> Result<Vec<Address>, Error> {
         serde_json::from_value::<RawResponse>(value)
             .map_err(|e| e.into())
             .map(|r| {

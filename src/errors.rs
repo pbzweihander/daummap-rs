@@ -2,16 +2,8 @@
 
 #![allow(missing_docs)]
 
-error_chain!{
-    foreign_links {
-        Request(::reqwest::Error);
-        Json(::serde_json::Error);
-    }
-    errors {
-        /// When category group code parsing failed
-        ParseCategoryGroup(s: String) {
-            description("Cannot parse category group from string")
-            display("Error during parsing category group from : {}", s)
-        }
-    }
-}
+use failure::Fail;
+
+#[derive(Debug, Fail)]
+#[fail(display = "Error during parsing category group from : {}", _0)]
+pub struct ParseCategoryGroup(pub String);
