@@ -185,7 +185,7 @@ where
     set: HashSet<E>,
     buffer: Vec<E>,
     page: usize,
-    fut: Option<Box<dyn Future<Item = Vec<E>, Error = Error>>>,
+    fut: Option<Box<dyn Future<Item = Vec<E>, Error = Error> + Send>>,
 }
 
 impl<E, R> Response<E, R>
