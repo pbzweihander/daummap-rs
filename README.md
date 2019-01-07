@@ -9,14 +9,15 @@
 [Daum Map API](https://developers.kakao.com/docs/restapi/local) wrapper written in Rust.
 
 ```rust
-extern crate daummap;
+use daummap;
+use futures::prelude::*;
 
 fn main() {
     let resp = daummap::KeywordRequest::new(&get_key(), "카카오프렌즈")
         .coord(127.06283102249932, 37.514322572335935)
         .radius(20000)
         .get();
-    for place in resp {
+    for place in resp.wait() {
         println!("{}", place.name);
     }
 }
