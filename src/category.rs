@@ -1,12 +1,13 @@
 use {
-    crate::{ParseCategoryGroup, Place, Req, ReqOnce, Response, Sort},
-    failure::Error,
-    serde_derive::Deserialize,
-    serde_json,
-    std::{convert::Into, str::FromStr},
+    crate::{request, Meta, Place, Sort, KAKAO_LOCAL_API_BASE_URL},
+    failure::{Fail, Fallible},
+    futures::prelude::*,
+    reqwest::Url,
+    serde::Deserialize,
+    std::str::FromStr,
 };
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum CategoryGroup {
     Mart,
     ConvStore,
@@ -28,41 +29,12 @@ pub enum CategoryGroup {
     Pharmacy,
 }
 
-#[derive(Clone)]
-pub struct CategoryRequest {
-    app_key: String,
-    category_group: CategoryGroup,
-    longitude: Option<f32>,
-    latitude: Option<f32>,
-    radius: Option<usize>,
-    rect: Option<(f32, f32, f32, f32)>,
-    sort: Option<Sort>,
-}
-
-#[derive(Deserialize)]
-struct RawResponse {
-    documents: Vec<RawPlace>,
-}
-
-#[derive(Deserialize)]
-struct RawPlace {
-    id: String,
-    place_name: String,
-    category_name: String,
-    category_group_code: String,
-    phone: String,
-    address_name: String,
-    road_address_name: String,
-    x: String,
-    y: String,
-    place_url: String,
-    distance: String,
-}
-
 impl FromStr for CategoryGroup {
-    type Err = Error;
-    fn from_str(s: &str) -> Result<Self, Error> {
+    type Err = failure::Error;
+
+    fn from_str(s: &str) -> Fallible<Self> {
         use crate::CategoryGroup::*;
+
         Ok(match s {
             "MT1" => Mart,
             "CS2" => ConvStore,
@@ -82,7 +54,7 @@ impl FromStr for CategoryGroup {
             "CE7" => Cafe,
             "HP8" => Hospital,
             "PM9" => Pharmacy,
-            _ => return Err(ParseCategoryGroup(s.to_owned()).into()),
+            _ => return Err(ParseCategoryGroup(s.to_string()).into()),
         })
     }
 }
@@ -113,6 +85,32 @@ impl CategoryGroup {
     }
 }
 
+#[derive(Debug, Fail)]
+#[fail(display = "Cannot parse category group from {}", _0)]
+pub struct ParseCategoryGroup(pub String);
+
+#[derive(Debug, Clone)]
+pub struct CategoryResponse {
+    pub places: Vec<Place>,
+    pub total_count: usize,
+    pub pageable_count: usize,
+    pub is_end: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct CategoryRequest {
+    base_url: String,
+    app_key: String,
+    category_group: CategoryGroup,
+    longitude: Option<f32>,
+    latitude: Option<f32>,
+    radius: Option<usize>,
+    rect: Option<(f32, f32, f32, f32)>,
+    page: usize,
+    size: usize,
+    sort: Sort,
+}
+
 impl CategoryRequest {
     pub fn circle(
         app_key: &str,
@@ -122,13 +120,16 @@ impl CategoryRequest {
         radius: usize,
     ) -> Self {
         CategoryRequest {
-            app_key: app_key.to_owned(),
+            base_url: KAKAO_LOCAL_API_BASE_URL.to_string(),
+            app_key: app_key.to_string(),
             category_group,
             longitude: Some(longitude),
             latitude: Some(latitude),
             radius: Some(radius),
             rect: None,
-            sort: None,
+            page: 1,
+            size: 15,
+            sort: Sort::Accuracy,
         }
     }
 
@@ -141,69 +142,109 @@ impl CategoryRequest {
         y2: f32,
     ) -> Self {
         CategoryRequest {
-            app_key: app_key.to_owned(),
+            base_url: KAKAO_LOCAL_API_BASE_URL.to_string(),
+            app_key: app_key.to_string(),
             category_group,
             longitude: None,
             latitude: None,
             radius: None,
             rect: Some((x1, y1, x2, y2)),
-            sort: None,
+            page: 1,
+            size: 15,
+            sort: Sort::Accuracy,
         }
     }
 
-    pub fn sort(&mut self, sort: Sort) -> &mut Self {
-        self.sort = Some(sort);
+    pub fn base_url(&mut self, base_url: &str) -> &mut Self {
+        self.base_url = base_url.to_string();
         self
     }
 
-    pub fn get(&self) -> Response<Place, Self> {
-        Req::<Place>::get(self)
+    pub fn page(&mut self, page: usize) -> &mut Self {
+        self.page = page;
+        self
     }
-}
 
-impl ReqOnce<Place> for CategoryRequest {
-    fn to_url(&self, page: usize) -> String {
-        let mut s = format!(
-            "https://dapi.kakao.com/v2/local/search/category.json?category_group_code={}&page={}",
-            self.category_group.to_code(),
-            page
-        );
+    pub fn size(&mut self, size: usize) -> &mut Self {
+        self.size = size;
+        self
+    }
+
+    pub fn sort(&mut self, sort: Sort) -> &mut Self {
+        self.sort = sort;
+        self
+    }
+
+    pub fn get(&self) -> impl Future<Item = CategoryResponse, Error = failure::Error> {
+        static API_PATH: &'static str = "/search/category.json";
+
+        use futures::future::result;
+
+        let app_key = self.app_key.clone();
+
+        let mut params = vec![
+            (
+                "category_group_code",
+                self.category_group.to_code().to_string(),
+            ),
+            ("page", self.page.to_string()),
+            ("size", self.size.to_string()),
+            ("sort", self.sort.to_string()),
+        ];
+
         if let Some(x) = self.longitude {
-            s = s + "&x=" + &x.to_string();
+            params.push(("x", x.to_string()));
         }
         if let Some(y) = self.latitude {
-            s = s + "&y=" + &y.to_string();
+            params.push(("y", y.to_string()));
         }
-        if let Some(r) = self.radius {
-            s = s + "&radius=" + &r.to_string();
+        if let Some(radius) = self.radius {
+            params.push(("radius", radius.to_string()));
         }
         if let Some((x1, y1, x2, y2)) = self.rect {
-            s = s + &format!("&rect={},{},{},{}", x1, y1, x2, y2);
+            params.push(("rect", format!("{},{},{},{}", x1, y1, x2, y2)));
         }
-        if let Some(ref ss) = self.sort {
-            use self::Sort::*;
-            s = s
-                + "&sort="
-                + match *ss {
-                    Accuracy => "accuracy",
-                    Distance => "distance",
-                }
-        }
-        s
-    }
 
-    fn get_app_key(&self) -> &str {
-        &self.app_key
-    }
+        result(
+            Url::parse(&self.base_url)
+                .and_then(|base| base.join(API_PATH))
+                .and_then(|url| Url::parse_with_params(url.as_str(), &params))
+                .map_err(Into::into),
+        )
+        .and_then(move |url| request::<RawResponse>(url, &app_key))
+        .map(|resp| {
+            let places = resp.documents.into_iter().map(Into::into).collect();
 
-    fn deserialize(value: serde_json::Value) -> Result<Vec<Place>, Error> {
-        serde_json::from_value::<RawResponse>(value)
-            .map_err(|e| e.into())
-            .map(|r| r.documents.into_iter().map(|r| r.into()).collect())
+            CategoryResponse {
+                places,
+                total_count: resp.meta.total_count,
+                pageable_count: resp.meta.pageable_count,
+                is_end: resp.meta.is_end,
+            }
+        })
     }
 }
 
-impl Req<Place> for CategoryRequest {}
+#[derive(Debug, Deserialize)]
+struct RawResponse {
+    documents: Vec<RawPlace>,
+    meta: Meta,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawPlace {
+    id: String,
+    place_name: String,
+    category_name: String,
+    category_group_code: String,
+    phone: String,
+    address_name: String,
+    road_address_name: String,
+    x: String,
+    y: String,
+    place_url: String,
+    distance: String,
+}
 
 impl Into<Place> for RawPlace {
     fn into(self) -> Place {

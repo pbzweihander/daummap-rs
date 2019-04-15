@@ -1,28 +1,18 @@
 use {
-    crate::{Element, Req, ReqOnce, Response},
-    failure::Error,
-    serde_derive::Deserialize,
-    serde_json,
-    std::{
-        cmp::{Eq, PartialEq},
-        convert::From,
-        hash::{Hash, Hasher},
-    },
+    crate::{request, Meta, KAKAO_LOCAL_API_BASE_URL},
+    futures::prelude::*,
+    reqwest::Url,
+    serde::Deserialize,
 };
 
-#[derive(Clone)]
-pub struct AddressRequest {
-    app_key: String,
-    query: String,
-}
-
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Address {
+    pub address: Option<String>,
     pub land_lot: Option<LandLotAddress>,
     pub road: Option<RoadAddress>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct LandLotAddress {
     pub address: String,
     pub province: String,
@@ -39,7 +29,7 @@ pub struct LandLotAddress {
     pub latitude: Option<f32>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct RoadAddress {
     pub address: String,
     pub province: String,
@@ -55,18 +45,108 @@ pub struct RoadAddress {
     pub latitude: Option<f32>,
 }
 
-#[derive(Deserialize)]
-struct RawResponse {
-    documents: Vec<Document>,
+#[derive(Debug, Clone)]
+pub struct AddressResponse {
+    pub addresses: Vec<Address>,
+    pub total_count: usize,
+    pub pageable_count: usize,
+    pub is_end: bool,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Clone)]
+pub struct AddressRequest {
+    base_url: String,
+    app_key: String,
+    query: String,
+    page: usize,
+    size: usize,
+}
+
+impl AddressRequest {
+    pub fn new(app_key: &str, query: &str) -> Self {
+        AddressRequest {
+            base_url: KAKAO_LOCAL_API_BASE_URL.to_string(),
+            app_key: app_key.to_string(),
+            query: query.to_string(),
+            page: 1,
+            size: 15,
+        }
+    }
+
+    pub fn base_url(&mut self, base_url: &str) -> &mut Self {
+        self.base_url = base_url.to_string();
+        self
+    }
+
+    pub fn page(&mut self, page: usize) -> &mut Self {
+        self.page = page;
+        self
+    }
+
+    pub fn size(&mut self, size: usize) -> &mut Self {
+        self.size = size;
+        self
+    }
+
+    pub fn get(&self) -> impl Future<Item = AddressResponse, Error = failure::Error> {
+        static API_PATH: &'static str = "/search/address.json";
+
+        use futures::future::result;
+
+        let app_key = self.app_key.clone();
+
+        result(
+            Url::parse(&self.base_url)
+                .and_then(|base| base.join(API_PATH))
+                .and_then(|url| {
+                    Url::parse_with_params(
+                        url.as_str(),
+                        &[
+                            ("query", self.query.clone()),
+                            ("page", self.page.to_string()),
+                            ("size", self.size.to_string()),
+                        ],
+                    )
+                })
+                .map_err(Into::into),
+        )
+        .and_then(move |url| request::<RawResponse>(url, &app_key))
+        .map(|resp| {
+            let addresses = resp
+                .documents
+                .into_iter()
+                .map(|document| Address {
+                    address: document.address_name,
+                    land_lot: document.address.map(Into::into),
+                    road: document.road_address.map(Into::into),
+                })
+                .filter(|addr| addr.land_lot.is_some() || addr.road.is_some())
+                .collect();
+
+            AddressResponse {
+                addresses,
+                total_count: resp.meta.total_count,
+                pageable_count: resp.meta.pageable_count,
+                is_end: resp.meta.is_end,
+            }
+        })
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct RawResponse {
+    documents: Vec<Document>,
+    meta: Meta,
+}
+
+#[derive(Debug, Deserialize)]
 struct Document {
+    address_name: Option<String>,
     address: Option<RawLandLotAddress>,
     road_address: Option<RawRoadAddress>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct RawLandLotAddress {
     address_name: String,
     region_1depth_name: String,
@@ -83,14 +163,14 @@ struct RawLandLotAddress {
     y: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct RawRoadAddress {
     address_name: String,
     region_1depth_name: String,
     region_2depth_name: String,
     region_3depth_name: String,
     road_name: String,
-    undergroun_yn: String,
+    underground_yn: String,
     main_building_no: String,
     sub_building_no: String,
     building_name: String,
@@ -98,51 +178,6 @@ struct RawRoadAddress {
     x: String,
     y: String,
 }
-
-impl AddressRequest {
-    pub fn new(app_key: &str, query: &str) -> Self {
-        AddressRequest {
-            app_key: app_key.to_owned(),
-            query: query.to_owned(),
-        }
-    }
-
-    pub fn get(&self) -> Response<Address, Self> {
-        Req::<Address>::get(self)
-    }
-}
-
-impl ReqOnce<Address> for AddressRequest {
-    fn to_url(&self, page: usize) -> String {
-        use crate::encode;
-        format!(
-            "https://dapi.kakao.com/v2/local/search/address.json?query={}?page={}",
-            encode(&self.query),
-            page
-        )
-    }
-
-    fn get_app_key(&self) -> &str {
-        &self.app_key
-    }
-
-    fn deserialize(value: serde_json::Value) -> Result<Vec<Address>, Error> {
-        serde_json::from_value::<RawResponse>(value)
-            .map_err(|e| e.into())
-            .map(|r| {
-                r.documents
-                    .into_iter()
-                    .map(|d| Address {
-                        land_lot: d.address.map(|r| r.into()),
-                        road: d.road_address.map(|r| r.into()),
-                    })
-                    .filter(|a| a.land_lot.is_some() || a.road.is_some())
-                    .collect()
-            })
-    }
-}
-
-impl Req<Address> for AddressRequest {}
 
 impl From<RawLandLotAddress> for LandLotAddress {
     fn from(raddr: RawLandLotAddress) -> Self {
@@ -180,7 +215,7 @@ impl From<RawRoadAddress> for RoadAddress {
             city: raddr.region_2depth_name,
             town: raddr.region_3depth_name,
             road_name: raddr.road_name,
-            is_underground: raddr.undergroun_yn == "Y",
+            is_underground: raddr.underground_yn == "Y",
             main_building_number: raddr.main_building_no.parse::<usize>().ok(),
             sub_building_number: raddr.sub_building_no.parse::<usize>().ok(),
             building_name: raddr.building_name,
@@ -190,46 +225,3 @@ impl From<RawRoadAddress> for RoadAddress {
         }
     }
 }
-
-impl Hash for Address {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.land_lot.hash(state);
-        self.road.hash(state);
-    }
-}
-
-impl Hash for LandLotAddress {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.address.hash(state);
-        self.zip_code.hash(state);
-    }
-}
-
-impl Hash for RoadAddress {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.address.hash(state);
-        self.post_code.hash(state);
-    }
-}
-
-impl PartialEq for Address {
-    fn eq(&self, other: &Self) -> bool {
-        self.land_lot == other.land_lot || self.road == other.road
-    }
-}
-
-impl PartialEq for LandLotAddress {
-    fn eq(&self, other: &Self) -> bool {
-        self.address == other.address && self.zip_code == other.zip_code
-    }
-}
-
-impl PartialEq for RoadAddress {
-    fn eq(&self, other: &Self) -> bool {
-        self.address == other.address && self.post_code == other.post_code
-    }
-}
-
-impl Eq for Address {}
-
-impl Element for Address {}

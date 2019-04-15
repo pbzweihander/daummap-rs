@@ -1,24 +1,33 @@
 # daummap-rs
 
-[![circleci](https://circleci.com/gh/pbzweihander/daummap-rs.svg?style=shield)](https://circleci.com/gh/pbzweihander/daummap-rs)
-[![crate.io](https://img.shields.io/crates/v/daummap.svg)](https://crates.io/crates/daummap)
-[![docs.rs](https://docs.rs/daummap/badge.svg)](https://docs.rs/daummap)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE-MIT)
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE-APACHE)
+[![circleci badge]][circleci]
+[![crates.io badge]][crates.io]
+[![docs.rs badge]][docs.rs]
+[![MIT License badge]](LICENSE-MIT)
+[![Apache License badge]](LICENSE-APACHE)
 
-[Daum Map API](https://developers.kakao.com/docs/restapi/local) wrapper written in Rust.
+[Kakao Map API](https://developers.kakao.com/docs/restapi/local) wrapper written in Rust.
 
 ```rust
 use daummap;
 use futures::prelude::*;
 
-fn main() {
-    let resp = daummap::KeywordRequest::new(&get_key(), "카카오프렌즈")
-        .coord(127.06283102249932, 37.514322572335935)
-        .radius(20000)
-        .get();
-    for place in resp.wait() {
-        println!("{}", place.name);
-    }
+let resp = daummap::KeywordRequest::new(APP_KEY, "카카오프렌즈")
+    .coord(127.06283102249932, 37.514322572335935)
+    .radius(20000)
+    .get()
+    .wait()
+    .unwrap();
+for place in resp.addresses {
+    println!("{}", place.name);
 }
 ```
+
+[circleci]: https://circleci.com/gh/pbzweihander/daummap-rs
+[circleci badge]: https://circleci.com/gh/pbzweihander/daummap-rs.svg?style=shield
+[crates.io]: https://crates.io/crates/daummap
+[crates.io badge]: https://badgen.net/crates/v/daummap
+[docs.rs]: https://docs.rs/daummap
+[docs.rs badge]: https://docs.rs/daummap/badge.svg
+[MIT License badge]: https://badgen.net/badge/license/MIT/blue
+[Apache License badge]: https://badgen.net/badge/license/Apache-2.0/blue

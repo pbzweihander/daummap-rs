@@ -1,39 +1,108 @@
 use {
-    crate::{Address, Element, LandLotAddress, Req, ReqOnce, Response, RoadAddress},
-    failure::Error,
-    serde_derive::Deserialize,
-    serde_json,
-    std::{
-        cmp::{Eq, PartialEq},
-        convert::{From, Into},
-        hash::{Hash, Hasher},
-    },
+    crate::{request, Address, LandLotAddress, RoadAddress, KAKAO_LOCAL_API_BASE_URL},
+    failure::Fallible,
+    futures::prelude::*,
+    reqwest::Url,
+    serde::Deserialize,
 };
 
-#[derive(Deserialize)]
+#[derive(Debug, Clone)]
+pub struct CoordRequest {
+    base_url: String,
+    app_key: String,
+    page: usize,
+    longitude: f32,
+    latitude: f32,
+}
+
+impl CoordRequest {
+    pub fn new(app_key: &str, longitude: f32, latitude: f32) -> Self {
+        CoordRequest {
+            base_url: KAKAO_LOCAL_API_BASE_URL.to_string(),
+            app_key: app_key.to_string(),
+            page: 1,
+            longitude,
+            latitude,
+        }
+    }
+
+    pub fn base_url(&mut self, base_url: &str) -> &mut Self {
+        self.base_url = base_url.to_string();
+        self
+    }
+
+    pub fn page(&mut self, page: usize) -> &mut Self {
+        self.page = page;
+        self
+    }
+
+    fn to_url(&self, api_path: &str) -> Fallible<Url> {
+        Url::parse(&self.base_url)
+            .and_then(|base| base.join(api_path))
+            .and_then(|url| {
+                Url::parse_with_params(
+                    url.as_str(),
+                    &[
+                        ("page", self.page.to_string()),
+                        ("x", self.longitude.to_string()),
+                        ("y", self.latitude.to_string()),
+                    ],
+                )
+            })
+            .map_err(Into::into)
+    }
+
+    pub fn get_region(&self) -> impl Future<Item = Vec<Region>, Error = failure::Error> {
+        static API_PATH: &'static str = "/geo/coord2regioncode.json";
+
+        use futures::future::result;
+
+        let app_key = self.app_key.clone();
+
+        result(self.to_url(API_PATH))
+            .and_then(move |url| request::<Coord2RegionResponse>(url, &app_key))
+            .map(|resp| resp.documents.into_iter().map(Into::into).collect())
+    }
+
+    pub fn get_address(&self) -> impl Future<Item = Vec<Address>, Error = failure::Error> {
+        static API_PATH: &'static str = "/geo/coord2address.json";
+
+        use futures::future::result;
+
+        let app_key = self.app_key.clone();
+
+        result(self.to_url(API_PATH))
+            .and_then(move |url| request::<Coord2AddressResponse>(url, &app_key))
+            .map(|resp| {
+                resp.documents
+                    .into_iter()
+                    .map(|document| Address {
+                        address: None,
+                        land_lot: document.address.map(Into::into),
+                        road: document.road_address.map(Into::into),
+                    })
+                    .collect()
+            })
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct Coord2AddressResponse {
+    documents: Vec<Coord2AddressDocument>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Coord2RegionResponse {
+    documents: Vec<RawRegion>,
+}
+
+#[derive(Debug, Deserialize)]
 struct Coord2AddressDocument {
     address: Option<RawLandLotAddress>,
     road_address: Option<RawRoadAddress>,
 }
 
-#[derive(Deserialize)]
-struct Coord2AddressResponse {
-    documents: Vec<Coord2AddressDocument>,
-}
-
-#[derive(Deserialize)]
-struct Coord2RegionResponse {
-    documents: Vec<RawRegion>,
-}
-
-#[derive(Clone)]
-pub struct CoordRequest {
-    app_key: String,
-    longitude: f32,
-    latitude: f32,
-}
-
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct RawRegion {
     address_name: String,
     region_1depth_name: String,
@@ -45,7 +114,7 @@ struct RawRegion {
     y: f32,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Region {
     pub address: String,
     pub province: String,
@@ -57,7 +126,7 @@ pub struct Region {
     pub latitude: Option<f32>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct RawLandLotAddress {
     address_name: String,
     region_1depth_name: String,
@@ -69,7 +138,7 @@ struct RawLandLotAddress {
     zip_code: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct RawRoadAddress {
     address_name: String,
     region_1depth_name: String,
@@ -82,81 +151,6 @@ struct RawRoadAddress {
     building_name: String,
     zone_no: String,
 }
-
-impl CoordRequest {
-    pub fn new(app_key: &str, longitude: f32, latitude: f32) -> Self {
-        CoordRequest {
-            app_key: app_key.to_owned(),
-            longitude,
-            latitude,
-        }
-    }
-
-    fn to_url_with_base(&self, base_url: &str, page: usize) -> String {
-        format!(
-            "{}?x={}&y={}&page={}",
-            base_url, self.longitude, self.latitude, page
-        )
-    }
-
-    pub fn get_region(&self) -> Response<Region, Self> {
-        Req::<Region>::get(self)
-    }
-
-    pub fn get_address(&self) -> Response<Address, Self> {
-        Req::<Address>::get(self)
-    }
-}
-
-impl ReqOnce<Region> for CoordRequest {
-    fn to_url(&self, page: usize) -> String {
-        self.to_url_with_base(
-            "https://dapi.kakao.com/v2/local/geo/coord2regioncode.json",
-            page,
-        )
-    }
-
-    fn get_app_key(&self) -> &str {
-        &self.app_key
-    }
-
-    fn deserialize(value: serde_json::Value) -> Result<Vec<Region>, Error> {
-        serde_json::from_value::<Coord2RegionResponse>(value)
-            .map_err(|e| e.into())
-            .map(|r| r.documents.into_iter().map(|r| r.into()).collect())
-    }
-}
-
-impl ReqOnce<Address> for CoordRequest {
-    fn to_url(&self, page: usize) -> String {
-        self.to_url_with_base(
-            "https://dapi.kakao.com/v2/local/geo/coord2address.json",
-            page,
-        )
-    }
-
-    fn get_app_key(&self) -> &str {
-        &self.app_key
-    }
-
-    fn deserialize(value: serde_json::Value) -> Result<Vec<Address>, Error> {
-        serde_json::from_value::<Coord2AddressResponse>(value)
-            .map_err(|e| e.into())
-            .map(|r| {
-                r.documents
-                    .into_iter()
-                    .map(|d| Address {
-                        land_lot: d.address.map(|r| r.into()),
-                        road: d.road_address.map(|r| r.into()),
-                    })
-                    .collect()
-            })
-    }
-}
-
-impl Req<Region> for CoordRequest {}
-
-impl Req<Address> for CoordRequest {}
 
 impl From<RawRegion> for Region {
     fn from(rreg: RawRegion) -> Self {
@@ -215,20 +209,3 @@ impl Into<RoadAddress> for RawRoadAddress {
         }
     }
 }
-
-impl Hash for Region {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.address.hash(state);
-        self.code.hash(state);
-    }
-}
-
-impl PartialEq for Region {
-    fn eq(&self, other: &Self) -> bool {
-        self.address == other.address && self.code == other.code
-    }
-}
-
-impl Eq for Region {}
-
-impl Element for Region {}
