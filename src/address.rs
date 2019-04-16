@@ -1,7 +1,6 @@
 use {
     crate::{request, Meta, KAKAO_LOCAL_API_BASE_URL},
     futures::prelude::*,
-    reqwest::Url,
     serde::Deserialize,
 };
 
@@ -91,26 +90,16 @@ impl AddressRequest {
     pub fn get(&self) -> impl Future<Item = AddressResponse, Error = failure::Error> {
         static API_PATH: &'static str = "/search/address.json";
 
-        use futures::future::result;
-
-        let app_key = self.app_key.clone();
-
-        result(
-            Url::parse(&self.base_url)
-                .and_then(|base| base.join(API_PATH))
-                .and_then(|url| {
-                    Url::parse_with_params(
-                        url.as_str(),
-                        &[
-                            ("query", self.query.clone()),
-                            ("page", self.page.to_string()),
-                            ("size", self.size.to_string()),
-                        ],
-                    )
-                })
-                .map_err(Into::into),
+        request::<RawResponse>(
+            &self.base_url,
+            API_PATH,
+            &[
+                ("query", self.query.clone()),
+                ("page", self.page.to_string()),
+                ("size", self.size.to_string()),
+            ],
+            &self.app_key,
         )
-        .and_then(move |url| request::<RawResponse>(url, &app_key))
         .map(|resp| {
             let addresses = resp
                 .documents

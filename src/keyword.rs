@@ -1,7 +1,6 @@
 use {
     crate::{request, CategoryGroup, Meta, Sort, KAKAO_LOCAL_API_BASE_URL},
     futures::prelude::*,
-    reqwest::Url,
     serde::Deserialize,
 };
 
@@ -114,10 +113,6 @@ impl KeywordRequest {
     pub fn get(&self) -> impl Future<Item = KeywordResponse, Error = failure::Error> {
         static API_PATH: &'static str = "/search/keyword.json";
 
-        use futures::future::result;
-
-        let app_key = self.app_key.clone();
-
         let mut params = vec![
             ("query", self.query.clone()),
             ("page", self.page.to_string()),
@@ -141,14 +136,7 @@ impl KeywordRequest {
             params.push(("rect", format!("{},{},{},{}", x1, y1, x2, y2)));
         }
 
-        result(
-            Url::parse(&self.base_url)
-                .and_then(|base| base.join(API_PATH))
-                .and_then(|url| Url::parse_with_params(url.as_str(), &params))
-                .map_err(Into::into),
-        )
-        .and_then(move |url| request::<RawResponse>(url, &app_key))
-        .map(|resp| {
+        request::<RawResponse>(&self.base_url, API_PATH, &params, &self.app_key).map(|resp| {
             let places = resp.documents.into_iter().map(Into::into).collect();
 
             KeywordResponse {

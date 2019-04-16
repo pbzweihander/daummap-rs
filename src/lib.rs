@@ -134,17 +134,31 @@ impl ToString for Sort {
 }
 
 pub(crate) fn request<T: DeserializeOwned>(
-    url: Url,
+    base_url: &str,
+    path: &str,
+    params: &[(&str, String)],
     key: &str,
 ) -> impl Future<Item = T, Error = failure::Error> {
-    Client::new()
-        .get(url)
-        .header("Authorization", format!("KakaoAK {}", key))
-        .body("")
-        .send()
-        .and_then(Response::error_for_status)
-        .and_then(|mut resp| resp.json())
-        .map_err(Into::into)
+    use futures::future::result;
+
+    let key = key.to_string();
+
+    result(
+        Url::parse(base_url)
+            .and_then(|base| base.join(path))
+            .and_then(|url| Url::parse_with_params(url.as_str(), params))
+            .map_err(Into::into),
+    )
+    .and_then(move |url| {
+        Client::new()
+            .get(url)
+            .header("Authorization", format!("KakaoAK {}", key))
+            .body("")
+            .send()
+            .and_then(Response::error_for_status)
+            .and_then(|mut resp| resp.json())
+            .map_err(Into::into)
+    })
 }
 
 #[cfg(test)]
@@ -177,6 +191,10 @@ mod tests {
             let called_sender = called_sender.clone();
 
             service_fn_ok(move |req| {
+                let uri = req.uri();
+                assert_eq!(uri.path(), "/foo/bar");
+                assert_eq!(uri.query(), Some("baz=bax"));
+
                 let headers = req.headers();
                 assert_eq!(
                     headers.get("Authorization"),
@@ -196,8 +214,13 @@ mod tests {
 
         rt.spawn(server);
 
-        let fut = request::<Foo>("http://localhost:12121".parse().unwrap(), "key")
-            .inspect(|_| shutdown_sender.send(()).unwrap());
+        let fut = request::<Foo>(
+            "http://localhost:12121",
+            "/foo/bar",
+            &[("baz", "bax".to_string())],
+            "key",
+        )
+        .inspect(|_| shutdown_sender.send(()).unwrap());
 
         let resp = rt.block_on_all(fut).unwrap();
 

@@ -2,7 +2,6 @@ use {
     crate::{request, Meta, Place, Sort, KAKAO_LOCAL_API_BASE_URL},
     failure::{Fail, Fallible},
     futures::prelude::*,
-    reqwest::Url,
     serde::Deserialize,
     std::str::FromStr,
 };
@@ -178,10 +177,6 @@ impl CategoryRequest {
     pub fn get(&self) -> impl Future<Item = CategoryResponse, Error = failure::Error> {
         static API_PATH: &'static str = "/search/category.json";
 
-        use futures::future::result;
-
-        let app_key = self.app_key.clone();
-
         let mut params = vec![
             (
                 "category_group_code",
@@ -205,14 +200,7 @@ impl CategoryRequest {
             params.push(("rect", format!("{},{},{},{}", x1, y1, x2, y2)));
         }
 
-        result(
-            Url::parse(&self.base_url)
-                .and_then(|base| base.join(API_PATH))
-                .and_then(|url| Url::parse_with_params(url.as_str(), &params))
-                .map_err(Into::into),
-        )
-        .and_then(move |url| request::<RawResponse>(url, &app_key))
-        .map(|resp| {
+        request::<RawResponse>(&self.base_url, API_PATH, &params, &self.app_key).map(|resp| {
             let places = resp.documents.into_iter().map(Into::into).collect();
 
             CategoryResponse {

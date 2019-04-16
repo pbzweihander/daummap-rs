@@ -1,9 +1,7 @@
 use {
     crate::{request, Address, LandLotAddress, RoadAddress, KAKAO_LOCAL_API_BASE_URL},
-    failure::Fallible,
     futures::prelude::*,
-    reqwest::Url,
-    serde::Deserialize,
+    serde::{de::DeserializeOwned, Deserialize},
 };
 
 #[derive(Debug, Clone)]
@@ -36,53 +34,42 @@ impl CoordRequest {
         self
     }
 
-    fn to_url(&self, api_path: &str) -> Fallible<Url> {
-        Url::parse(&self.base_url)
-            .and_then(|base| base.join(api_path))
-            .and_then(|url| {
-                Url::parse_with_params(
-                    url.as_str(),
-                    &[
-                        ("page", self.page.to_string()),
-                        ("x", self.longitude.to_string()),
-                        ("y", self.latitude.to_string()),
-                    ],
-                )
-            })
-            .map_err(Into::into)
+    fn request<T: DeserializeOwned>(
+        &self,
+        api_path: &str,
+    ) -> impl Future<Item = T, Error = failure::Error> {
+        request::<T>(
+            &self.base_url,
+            api_path,
+            &[
+                ("page", self.page.to_string()),
+                ("x", self.longitude.to_string()),
+                ("y", self.latitude.to_string()),
+            ],
+            &self.app_key,
+        )
     }
 
     pub fn get_region(&self) -> impl Future<Item = Vec<Region>, Error = failure::Error> {
         static API_PATH: &'static str = "/geo/coord2regioncode.json";
 
-        use futures::future::result;
-
-        let app_key = self.app_key.clone();
-
-        result(self.to_url(API_PATH))
-            .and_then(move |url| request::<Coord2RegionResponse>(url, &app_key))
+        self.request::<Coord2RegionResponse>(API_PATH)
             .map(|resp| resp.documents.into_iter().map(Into::into).collect())
     }
 
     pub fn get_address(&self) -> impl Future<Item = Vec<Address>, Error = failure::Error> {
         static API_PATH: &'static str = "/geo/coord2address.json";
 
-        use futures::future::result;
-
-        let app_key = self.app_key.clone();
-
-        result(self.to_url(API_PATH))
-            .and_then(move |url| request::<Coord2AddressResponse>(url, &app_key))
-            .map(|resp| {
-                resp.documents
-                    .into_iter()
-                    .map(|document| Address {
-                        address: None,
-                        land_lot: document.address.map(Into::into),
-                        road: document.road_address.map(Into::into),
-                    })
-                    .collect()
-            })
+        self.request::<Coord2AddressResponse>(API_PATH).map(|resp| {
+            resp.documents
+                .into_iter()
+                .map(|document| Address {
+                    address: None,
+                    land_lot: document.address.map(Into::into),
+                    road: document.road_address.map(Into::into),
+                })
+                .collect()
+        })
     }
 }
 
