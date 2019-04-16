@@ -13,7 +13,7 @@ use {
 };
 
 #[test]
-fn address() {
+fn test_address() {
     static RESP: &'static str = r#"{
   "meta": {
     "total_count": 4,
@@ -123,7 +123,7 @@ fn address() {
 }
 
 #[test]
-fn coord2region() {
+fn test_coord2region() {
     static RESP: &'static str = r#"{
   "meta": {
     "total_count": 2
@@ -202,7 +202,7 @@ fn coord2region() {
 }
 
 #[test]
-fn coord2address() {
+fn test_coord2address() {
     static RESP: &'static str = r#"{
   "meta": {
     "total_count": 1
@@ -295,7 +295,7 @@ fn coord2address() {
 }
 
 #[test]
-fn keyword() {
+fn test_keyword() {
     static RESP: &'static str = r#"{
   "meta": {
     "same_name": {
@@ -382,7 +382,7 @@ fn keyword() {
 }
 
 #[test]
-fn category() {
+fn test_category() {
     static RESP: &'static str = r#"{
   "meta": {
     "same_name": null,

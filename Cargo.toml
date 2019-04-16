@@ -1,6 +1,6 @@
 [package]
 name = "daummap"
-version = "0.2.2"
+version = "0.3.0"
 authors = ["pbzweihander <pbzweihander@gmail.com>"]
 description = "Kakao Map API wrapper"
 license = "MIT/Apache-2.0"
