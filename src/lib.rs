@@ -141,11 +141,22 @@ pub(crate) fn request<T: DeserializeOwned>(
 ) -> impl Future<Item = T, Error = failure::Error> {
     use futures::future::result;
 
+    let base_url = if base_url.ends_with('/') {
+        base_url.to_string()
+    } else {
+        base_url.to_string() + "/"
+    };
+    let path = if path.starts_with('/') {
+        path.trim_start_matches('/').to_string()
+    } else {
+        path.to_string()
+    };
+
     let key = key.to_string();
 
     result(
-        Url::parse(base_url)
-            .and_then(|base| base.join(path))
+        Url::parse(&base_url)
+            .and_then(|base| base.join(&path))
             .and_then(|url| Url::parse_with_params(url.as_str(), params))
             .map_err(Into::into),
     )
@@ -192,7 +203,7 @@ mod tests {
 
             service_fn_ok(move |req| {
                 let uri = req.uri();
-                assert_eq!(uri.path(), "/foo/bar");
+                assert_eq!(uri.path(), "/api/foo/bar");
                 assert_eq!(uri.query(), Some("baz=bax"));
 
                 let headers = req.headers();
@@ -215,7 +226,7 @@ mod tests {
         rt.spawn(server);
 
         let fut = request::<Foo>(
-            "http://localhost:12121",
+            "http://localhost:12121/api",
             "/foo/bar",
             &[("baz", "bax".to_string())],
             "key",
