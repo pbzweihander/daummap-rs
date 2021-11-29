@@ -1,19 +1,19 @@
 #![allow(clippy::unreadable_literal)]
 #![allow(clippy::excessive_precision)]
 
+use std::convert::Infallible;
+
 use {
     daummap,
-    futures::prelude::*,
     hyper::{
         header::HeaderValue,
-        service::{make_service_fn, service_fn_ok},
+        service::{make_service_fn, service_fn},
         Body, Response, Server,
     },
-    tokio::runtime::Runtime,
 };
 
-#[test]
-fn test_address() {
+#[tokio::test]
+async fn test_address() {
     static RESP: &'static str = r#"{
   "meta": {
     "total_count": 4,
@@ -60,44 +60,51 @@ fn test_address() {
 }"#;
 
     let (called_sender, called_receiver) = std::sync::mpsc::channel();
-    let (shutdown_sender, shutdown_receiver) = futures::sync::oneshot::channel();
-
-    let mut rt = Runtime::new().unwrap();
+    let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
 
     let service = make_service_fn(move |_| {
         let called_sender = called_sender.clone();
-        service_fn_ok(move |req| {
-            let uri = req.uri();
-            assert_eq!(uri.path(), "/search/address.json");
-            assert_eq!(uri.query(), Some("query=address&page=2&size=5"));
+        async move {
+            Ok::<_, Infallible>(service_fn(move |req| {
+                let called_sender = called_sender.clone();
+                async move {
+                    let uri = req.uri();
+                    assert_eq!(uri.path(), "/search/address.json");
+                    assert_eq!(uri.query(), Some("query=address&page=2&size=5"));
 
-            let headers = req.headers();
-            assert_eq!(
-                headers.get("Authorization"),
-                Some(&HeaderValue::from_static("KakaoAK key"))
-            );
+                    let headers = req.headers();
+                    assert_eq!(
+                        headers.get("Authorization"),
+                        Some(&HeaderValue::from_static("KakaoAK key"))
+                    );
 
-            called_sender.send(()).unwrap();
+                    called_sender.send(()).unwrap();
 
-            Response::<Body>::new(RESP.into())
-        })
+                    Ok::<_, Infallible>(Response::<Body>::new(RESP.into()))
+                }
+            }))
+        }
     });
 
-    let server = Server::bind(&"0.0.0.0:12121".parse().unwrap())
+    let server = Server::bind(&"127.0.0.1:12121".parse().unwrap())
         .serve(service)
-        .with_graceful_shutdown(shutdown_receiver)
-        .map_err(|why| panic!("{}", why));
+        .with_graceful_shutdown(async { shutdown_receiver.await.unwrap() });
 
-    rt.spawn(server);
+    tokio::spawn(async {
+        if let Err(e) = server.await {
+            panic!("{}", e);
+        }
+    });
 
-    let fut = daummap::AddressRequest::new("key", "address")
+    let resp = daummap::AddressRequest::new("key", "address")
         .base_url("http://localhost:12121")
         .page(2)
         .size(5)
         .get()
-        .inspect(|_| shutdown_sender.send(()).unwrap());
-    let resp = rt.block_on_all(fut).unwrap();
+        .await
+        .unwrap();
 
+    shutdown_sender.send(()).unwrap();
     called_receiver.try_recv().unwrap();
 
     assert_eq!(resp.total_count, 4);
@@ -108,10 +115,7 @@ fn test_address() {
 
     let address = &resp.addresses[0];
 
-    assert_eq!(
-        address.address,
-        Some("전북 익산시 부송동 100".to_string())
-    );
+    assert_eq!(address.address, Some("전북 익산시 부송동 100".to_string()));
 
     assert!(address.land_lot.is_some());
     let land_lot = address.land_lot.as_ref().unwrap();
@@ -122,8 +126,8 @@ fn test_address() {
     assert_eq!(&road.address, "전북 익산시 망산길 11-17");
 }
 
-#[test]
-fn test_coord2region() {
+#[tokio::test]
+async fn test_coord2region() {
     static RESP: &'static str = r#"{
   "meta": {
     "total_count": 2
@@ -155,43 +159,50 @@ fn test_coord2region() {
 }"#;
 
     let (called_sender, called_receiver) = std::sync::mpsc::channel();
-    let (shutdown_sender, shutdown_receiver) = futures::sync::oneshot::channel();
-
-    let mut rt = Runtime::new().unwrap();
+    let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
 
     let service = make_service_fn(move |_| {
         let called_sender = called_sender.clone();
-        service_fn_ok(move |req| {
-            let uri = req.uri();
-            assert_eq!(uri.path(), "/geo/coord2regioncode.json");
-            assert_eq!(uri.query(), Some("page=2&x=123.123&y=456.456"));
+        async move {
+            Ok::<_, Infallible>(service_fn(move |req| {
+                let called_sender = called_sender.clone();
+                async move {
+                    let uri = req.uri();
+                    assert_eq!(uri.path(), "/geo/coord2regioncode.json");
+                    assert_eq!(uri.query(), Some("page=2&x=123.123&y=456.456"));
 
-            let headers = req.headers();
-            assert_eq!(
-                headers.get("Authorization"),
-                Some(&HeaderValue::from_static("KakaoAK key"))
-            );
+                    let headers = req.headers();
+                    assert_eq!(
+                        headers.get("Authorization"),
+                        Some(&HeaderValue::from_static("KakaoAK key"))
+                    );
 
-            called_sender.send(()).unwrap();
+                    called_sender.send(()).unwrap();
 
-            Response::<Body>::new(RESP.into())
-        })
+                    Ok::<_, Infallible>(Response::<Body>::new(RESP.into()))
+                }
+            }))
+        }
     });
 
-    let server = Server::bind(&"0.0.0.0:12122".parse().unwrap())
+    let server = Server::bind(&"127.0.0.1:12122".parse().unwrap())
         .serve(service)
-        .with_graceful_shutdown(shutdown_receiver)
-        .map_err(|why| panic!("{}", why));
+        .with_graceful_shutdown(async { shutdown_receiver.await.unwrap() });
 
-    rt.spawn(server);
+    tokio::spawn(async {
+        if let Err(e) = server.await {
+            panic!("{}", e);
+        }
+    });
 
-    let fut = daummap::CoordRequest::new("key", 123.123, 456.456)
+    let resp = daummap::CoordRequest::new("key", 123.123, 456.456)
         .base_url("http://localhost:12122")
         .page(2)
         .get_region()
-        .inspect(|_| shutdown_sender.send(()).unwrap());
-    let resp = rt.block_on_all(fut).unwrap();
+        .await
+        .unwrap();
 
+    shutdown_sender.send(()).unwrap();
     called_receiver.try_recv().unwrap();
 
     assert_eq!(resp.len(), 2);
@@ -201,8 +212,8 @@ fn test_coord2region() {
     assert_eq!(resp[1].code, Some(4113565500));
 }
 
-#[test]
-fn test_coord2address() {
+#[tokio::test]
+async fn test_coord2address() {
     static RESP: &'static str = r#"{
   "meta": {
     "total_count": 1
@@ -236,43 +247,50 @@ fn test_coord2address() {
 }"#;
 
     let (called_sender, called_receiver) = std::sync::mpsc::channel();
-    let (shutdown_sender, shutdown_receiver) = futures::sync::oneshot::channel();
-
-    let mut rt = Runtime::new().unwrap();
+    let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
 
     let service = make_service_fn(move |_| {
         let called_sender = called_sender.clone();
-        service_fn_ok(move |req| {
-            let uri = req.uri();
-            assert_eq!(uri.path(), "/geo/coord2address.json");
-            assert_eq!(uri.query(), Some("page=2&x=123.123&y=456.456"));
+        async move {
+            Ok::<_, Infallible>(service_fn(move |req| {
+                let called_sender = called_sender.clone();
+                async move {
+                    let uri = req.uri();
+                    assert_eq!(uri.path(), "/geo/coord2address.json");
+                    assert_eq!(uri.query(), Some("page=2&x=123.123&y=456.456"));
 
-            let headers = req.headers();
-            assert_eq!(
-                headers.get("Authorization"),
-                Some(&HeaderValue::from_static("KakaoAK key"))
-            );
+                    let headers = req.headers();
+                    assert_eq!(
+                        headers.get("Authorization"),
+                        Some(&HeaderValue::from_static("KakaoAK key"))
+                    );
 
-            called_sender.send(()).unwrap();
+                    called_sender.send(()).unwrap();
 
-            Response::<Body>::new(RESP.into())
-        })
+                    Ok::<_, Infallible>(Response::<Body>::new(RESP.into()))
+                }
+            }))
+        }
     });
 
-    let server = Server::bind(&"0.0.0.0:12123".parse().unwrap())
+    let server = Server::bind(&"127.0.0.1:12123".parse().unwrap())
         .serve(service)
-        .with_graceful_shutdown(shutdown_receiver)
-        .map_err(|why| panic!("{}", why));
+        .with_graceful_shutdown(async { shutdown_receiver.await.unwrap() });
 
-    rt.spawn(server);
+    tokio::spawn(async {
+        if let Err(e) = server.await {
+            panic!("{}", e);
+        }
+    });
 
-    let fut = daummap::CoordRequest::new("key", 123.123, 456.456)
+    let resp = daummap::CoordRequest::new("key", 123.123, 456.456)
         .base_url("http://localhost:12123")
         .page(2)
         .get_address()
-        .inspect(|_| shutdown_sender.send(()).unwrap());
-    let resp = rt.block_on_all(fut).unwrap();
+        .await
+        .unwrap();
 
+    shutdown_sender.send(()).unwrap();
     called_receiver.try_recv().unwrap();
 
     assert_eq!(resp.len(), 1);
@@ -281,21 +299,15 @@ fn test_coord2address() {
 
     assert!(address.land_lot.is_some());
     let land_lot = address.land_lot.as_ref().unwrap();
-    assert_eq!(
-        &land_lot.address,
-        "경기 안성시 죽산면 죽산리 343-1"
-    );
+    assert_eq!(&land_lot.address, "경기 안성시 죽산면 죽산리 343-1");
 
     assert!(address.road.is_some());
     let road = address.road.as_ref().unwrap();
-    assert_eq!(
-        &road.address,
-        "경기도 안성시 죽산면 죽산초교길 69-4"
-    );
+    assert_eq!(&road.address, "경기도 안성시 죽산면 죽산초교길 69-4");
 }
 
-#[test]
-fn test_keyword() {
+#[tokio::test]
+async fn test_keyword() {
     static RESP: &'static str = r#"{
   "meta": {
     "same_name": {
@@ -326,49 +338,56 @@ fn test_keyword() {
 }"#;
 
     let (called_sender, called_receiver) = std::sync::mpsc::channel();
-    let (shutdown_sender, shutdown_receiver) = futures::sync::oneshot::channel();
-
-    let mut rt = Runtime::new().unwrap();
+    let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
 
     let service = make_service_fn(move |_| {
         let called_sender = called_sender.clone();
-        service_fn_ok(move |req| {
-            let uri = req.uri();
-            assert_eq!(uri.path(), "/search/keyword.json");
-            assert_eq!(
+        async move {
+            Ok::<_, Infallible>(service_fn(move |req| {
+                let called_sender = called_sender.clone();
+                async move {
+                    let uri = req.uri();
+                    assert_eq!(uri.path(), "/search/keyword.json");
+                    assert_eq!(
                 uri.query(),
                 Some("query=keyword&page=2&size=5&sort=accuracy&x=123.123&y=456.456&radius=1234")
             );
 
-            let headers = req.headers();
-            assert_eq!(
-                headers.get("Authorization"),
-                Some(&HeaderValue::from_static("KakaoAK key"))
-            );
+                    let headers = req.headers();
+                    assert_eq!(
+                        headers.get("Authorization"),
+                        Some(&HeaderValue::from_static("KakaoAK key"))
+                    );
 
-            called_sender.send(()).unwrap();
+                    called_sender.send(()).unwrap();
 
-            Response::<Body>::new(RESP.into())
-        })
+                    Ok::<_, Infallible>(Response::<Body>::new(RESP.into()))
+                }
+            }))
+        }
     });
 
-    let server = Server::bind(&"0.0.0.0:12124".parse().unwrap())
+    let server = Server::bind(&"127.0.0.1:12124".parse().unwrap())
         .serve(service)
-        .with_graceful_shutdown(shutdown_receiver)
-        .map_err(|why| panic!("{}", why));
+        .with_graceful_shutdown(async { shutdown_receiver.await.unwrap() });
 
-    rt.spawn(server);
+    tokio::spawn(async {
+        if let Err(e) = server.await {
+            panic!("{}", e);
+        }
+    });
 
-    let fut = daummap::KeywordRequest::new("key", "keyword")
+    let resp = daummap::KeywordRequest::new("key", "keyword")
         .base_url("http://localhost:12124")
         .coord(123.123, 456.456)
         .radius(1234)
         .page(2)
         .size(5)
         .get()
-        .inspect(|_| shutdown_sender.send(()).unwrap());
-    let resp = rt.block_on_all(fut).unwrap();
+        .await
+        .unwrap();
 
+    shutdown_sender.send(()).unwrap();
     called_receiver.try_recv().unwrap();
 
     assert_eq!(resp.total_count, 14);
@@ -381,8 +400,8 @@ fn test_keyword() {
     assert_eq!(&place.name, "카카오프렌즈 코엑스점");
 }
 
-#[test]
-fn test_category() {
+#[tokio::test]
+async fn test_category() {
     static RESP: &'static str = r#"{
   "meta": {
     "same_name": null,
@@ -409,40 +428,46 @@ fn test_category() {
 }"#;
 
     let (called_sender, called_receiver) = std::sync::mpsc::channel();
-    let (shutdown_sender, shutdown_receiver) = futures::sync::oneshot::channel();
-
-    let mut rt = Runtime::new().unwrap();
+    let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
 
     let service = make_service_fn(move |_| {
         let called_sender = called_sender.clone();
-        service_fn_ok(move |req| {
-            let uri = req.uri();
-            assert_eq!(uri.path(), "/search/category.json");
-            assert_eq!(
+        async move {
+            Ok::<_, Infallible>(service_fn(move |req| {
+                let called_sender = called_sender.clone();
+                async move {
+                    let uri = req.uri();
+                    assert_eq!(uri.path(), "/search/category.json");
+                    assert_eq!(
                 uri.query(),
                 Some("category_group_code=PM9&page=2&size=5&sort=accuracy&rect=123.123%2C456.456%2C321.321%2C654.654")
             );
 
-            let headers = req.headers();
-            assert_eq!(
-                headers.get("Authorization"),
-                Some(&HeaderValue::from_static("KakaoAK key"))
-            );
+                    let headers = req.headers();
+                    assert_eq!(
+                        headers.get("Authorization"),
+                        Some(&HeaderValue::from_static("KakaoAK key"))
+                    );
 
-            called_sender.send(()).unwrap();
+                    called_sender.send(()).unwrap();
 
-            Response::<Body>::new(RESP.into())
-        })
+                    Ok::<_, Infallible>(Response::<Body>::new(RESP.into()))
+                }
+            }))
+        }
     });
 
-    let server = Server::bind(&"0.0.0.0:12125".parse().unwrap())
+    let server = Server::bind(&"127.0.0.1:12125".parse().unwrap())
         .serve(service)
-        .with_graceful_shutdown(shutdown_receiver)
-        .map_err(|why| panic!("{}", why));
+        .with_graceful_shutdown(async { shutdown_receiver.await.unwrap() });
 
-    rt.spawn(server);
+    tokio::spawn(async {
+        if let Err(e) = server.await {
+            panic!("{}", e);
+        }
+    });
 
-    let fut = daummap::CategoryRequest::rect(
+    let resp = daummap::CategoryRequest::rect(
         "key",
         daummap::CategoryGroup::Pharmacy,
         123.123,
@@ -454,9 +479,10 @@ fn test_category() {
     .page(2)
     .size(5)
     .get()
-    .inspect(|_| shutdown_sender.send(()).unwrap());
-    let resp = rt.block_on_all(fut).unwrap();
+    .await
+    .unwrap();
 
+    shutdown_sender.send(()).unwrap();
     called_receiver.try_recv().unwrap();
 
     assert_eq!(resp.total_count, 11);

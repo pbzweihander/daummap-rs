@@ -1,6 +1,5 @@
 use {
     crate::{request, CategoryGroup, Meta, Sort, KAKAO_LOCAL_API_BASE_URL},
-    futures::prelude::*,
     serde::Deserialize,
 };
 
@@ -110,7 +109,7 @@ impl KeywordRequest {
         self
     }
 
-    pub fn get(&self) -> impl Future<Item = KeywordResponse, Error = failure::Error> {
+    pub async fn get(&self) -> Result<KeywordResponse, failure::Error> {
         static API_PATH: &'static str = "/search/keyword.json";
 
         let mut params = vec![
@@ -136,15 +135,14 @@ impl KeywordRequest {
             params.push(("rect", format!("{},{},{},{}", x1, y1, x2, y2)));
         }
 
-        request::<RawResponse>(&self.base_url, API_PATH, &params, &self.app_key).map(|resp| {
-            let places = resp.documents.into_iter().map(Into::into).collect();
+        let resp = request::<RawResponse>(&self.base_url, API_PATH, &params, &self.app_key).await?;
+        let places = resp.documents.into_iter().map(Into::into).collect();
 
-            KeywordResponse {
-                places,
-                total_count: resp.meta.total_count,
-                pageable_count: resp.meta.pageable_count,
-                is_end: resp.meta.is_end,
-            }
+        Ok(KeywordResponse {
+            places,
+            total_count: resp.meta.total_count,
+            pageable_count: resp.meta.pageable_count,
+            is_end: resp.meta.is_end,
         })
     }
 }

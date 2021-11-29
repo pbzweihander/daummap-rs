@@ -1,6 +1,6 @@
 [package]
 name = "daummap"
-version = "0.3.1"
+version = "0.4.0"
 authors = ["pbzweihander <pbzweihander@gmail.com>"]
 description = "Kakao Map API wrapper"
 license = "MIT/Apache-2.0"
@@ -10,13 +10,11 @@ readme = "README.md"
 edition = "2018"
 
 [dependencies]
-serde = { version = "1.0.90", features = ["derive"] }
-serde_json = "1.0.39"
-failure = "0.1.5"
-reqwest = "0.9.14"
-futures = "0.1.26"
+serde = { version = "1.0.130", features = ["derive"] }
+serde_json = "1.0.72"
+failure = "0.1.8"
+reqwest = { version = "0.11.6", features = ["json"] }
 
 [dev-dependencies]
-tokio = "0.1.18"
-hyper = "0.12.27"
-dotenv = "0.13.0"
+tokio = { version = "1.14.0", features = ["macros"] }
+hyper = { version = "0.14.15", features = ["server"] }

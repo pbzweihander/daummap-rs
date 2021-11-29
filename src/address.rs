@@ -1,6 +1,5 @@
 use {
     crate::{request, Meta, KAKAO_LOCAL_API_BASE_URL},
-    futures::prelude::*,
     serde::Deserialize,
 };
 
@@ -87,10 +86,10 @@ impl AddressRequest {
         self
     }
 
-    pub fn get(&self) -> impl Future<Item = AddressResponse, Error = failure::Error> {
+    pub async fn get(&self) -> Result<AddressResponse, failure::Error> {
         static API_PATH: &'static str = "/search/address.json";
 
-        request::<RawResponse>(
+        let resp = request::<RawResponse>(
             &self.base_url,
             API_PATH,
             &[
@@ -100,24 +99,23 @@ impl AddressRequest {
             ],
             &self.app_key,
         )
-        .map(|resp| {
-            let addresses = resp
-                .documents
-                .into_iter()
-                .map(|document| Address {
-                    address: document.address_name,
-                    land_lot: document.address.map(Into::into),
-                    road: document.road_address.map(Into::into),
-                })
-                .filter(|addr| addr.land_lot.is_some() || addr.road.is_some())
-                .collect();
+        .await?;
+        let addresses = resp
+            .documents
+            .into_iter()
+            .map(|document| Address {
+                address: document.address_name,
+                land_lot: document.address.map(Into::into),
+                road: document.road_address.map(Into::into),
+            })
+            .filter(|addr| addr.land_lot.is_some() || addr.road.is_some())
+            .collect();
 
-            AddressResponse {
-                addresses,
-                total_count: resp.meta.total_count,
-                pageable_count: resp.meta.pageable_count,
-                is_end: resp.meta.is_end,
-            }
+        Ok(AddressResponse {
+            addresses,
+            total_count: resp.meta.total_count,
+            pageable_count: resp.meta.pageable_count,
+            is_end: resp.meta.is_end,
         })
     }
 }

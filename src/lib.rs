@@ -7,70 +7,74 @@
 //! ## Address Search
 //!
 //! ```no_run
-//! # use futures::prelude::*;
 //! # #[allow(non_snake_case)]
+//! # async fn foo() {
 //! # let APP_KEY = "";
 //! let resp = daummap::AddressRequest::new(APP_KEY, "전북 삼성동 100")
 //!     .get()
-//!     .wait()
+//!     .await
 //!     .unwrap();
 //! for addr in resp.addresses {
 //!     println!("{}", addr.land_lot.unwrap().address);
 //! }
+//! # }
 //! ```
 //!
 //! ## Coord to Region
 //!
 //! ```no_run
-//! # use futures::prelude::*;
 //! # #[allow(non_snake_case)]
+//! # async fn foo() {
 //! # let APP_KEY = "";
 //! let resp = daummap::CoordRequest::new(APP_KEY, 127.1086228, 37.4012191)
 //!     .get_region()
-//!     .wait()
+//!     .await
 //!     .unwrap();
 //! for reg in resp {
 //!     println!("{}", reg.address);
 //! }
+//! # }
 //! ```
 //!
 //! ## Coord to Address
 //!
 //! ```no_run
-//! # use futures::prelude::*;
 //! # #[allow(non_snake_case)]
+//! # async fn foo() {
 //! # let APP_KEY = "";
 //! let resp = daummap::CoordRequest::new(APP_KEY, 127.423084873712, 37.0789561558879)
 //!     .get_address()
-//!     .wait()
+//!     .await
 //!     .unwrap();
 //! for addr in resp {
 //!     println!("{}", addr.road.unwrap().address);
 //! }
+//! # }
 //! ```
 //!
 //! ## Keyword Search
 //!
 //! ```no_run
-//! # use futures::prelude::*;
 //! # #[allow(non_snake_case)]
+//! # async fn foo() {
 //! # let APP_KEY = "";
 //! let resp = daummap::KeywordRequest::new(APP_KEY, "카카오프렌즈")
 //!     .coord(127.06283102249932, 37.514322572335935)
 //!     .radius(20000)
 //!     .get()
-//!     .wait()
+//!     .await
 //!     .unwrap();
 //! for p in resp.places {
 //!     println!("{}", p.name);
 //! }
+//! # }
 //! ```
 //!
 //! ## Category Search
 //!
 //! ```no_run
-//! # use futures::prelude::*;
 //! # #[allow(non_snake_case)]
+//! # async fn foo() {
 //! # let APP_KEY = "";
 //! let resp = daummap::CategoryRequest::rect(
 //!     APP_KEY,
@@ -81,11 +85,12 @@
 //!     37.5142554,
 //! )
 //! .get()
-//! .wait()
+//! .await
 //! .unwrap();
 //! for p in resp.places {
 //!     println!("{}", p.name);
 //! }
+//! # }
 //! ```
 
 pub mod address;
@@ -101,11 +106,7 @@ pub use crate::{
 };
 
 use {
-    futures::prelude::*,
-    reqwest::{
-        r#async::{Client, Response},
-        Url,
-    },
+    reqwest::{Client, Url},
     serde::{de::DeserializeOwned, Deserialize},
 };
 
@@ -133,14 +134,12 @@ impl ToString for Sort {
     }
 }
 
-pub(crate) fn request<T: DeserializeOwned>(
+pub(crate) async fn request<T: DeserializeOwned>(
     base_url: &str,
     path: &str,
     params: &[(&str, String)],
     key: &str,
-) -> impl Future<Item = T, Error = failure::Error> {
-    use futures::future::result;
-
+) -> Result<T, failure::Error> {
     let base_url = if base_url.ends_with('/') {
         base_url.to_string()
     } else {
@@ -154,36 +153,31 @@ pub(crate) fn request<T: DeserializeOwned>(
 
     let key = key.to_string();
 
-    result(
-        Url::parse(&base_url)
-            .and_then(|base| base.join(&path))
-            .and_then(|url| Url::parse_with_params(url.as_str(), params))
-            .map_err(Into::into),
-    )
-    .and_then(move |url| {
-        Client::new()
-            .get(url)
-            .header("Authorization", format!("KakaoAK {}", key))
-            .body("")
-            .send()
-            .and_then(Response::error_for_status)
-            .and_then(|mut resp| resp.json())
-            .map_err(Into::into)
-    })
+    let url = Url::parse(&base_url)
+        .and_then(|base| base.join(&path))
+        .and_then(|url| Url::parse_with_params(url.as_str(), params))?;
+    let resp = Client::new()
+        .get(url)
+        .header("Authorization", format!("KakaoAK {}", key))
+        .body("")
+        .send()
+        .await?;
+    let resp = resp.error_for_status()?;
+    Ok(resp.json().await?)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::convert::Infallible;
+
     use {
         crate::request,
-        futures::prelude::*,
         hyper::{
             header::HeaderValue,
-            service::{make_service_fn, service_fn_ok},
+            service::{make_service_fn, service_fn},
             Body, Response, Server,
         },
         serde::Deserialize,
-        tokio::runtime::Runtime,
     };
 
     #[derive(Deserialize)]
@@ -191,50 +185,57 @@ mod tests {
         bar: String,
     }
 
-    #[test]
-    fn test_request() {
-        let (called_sender, called_receiver) = std::sync::mpsc::channel();
-        let (shutdown_sender, shutdown_receiver) = futures::sync::oneshot::channel();
-
-        let mut rt = Runtime::new().unwrap();
+    #[tokio::test]
+    async fn test_request() {
+        let (called_sender, mut called_receiver) = tokio::sync::mpsc::channel(2);
+        let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
 
         let service = make_service_fn(move |_| {
             let called_sender = called_sender.clone();
+            async move {
+                Ok::<_, Infallible>(service_fn(move |req| {
+                    let called_sender = called_sender.clone();
+                    async move {
+                        let uri = req.uri();
+                        assert_eq!(uri.path(), "/api/foo/bar");
+                        assert_eq!(uri.query(), Some("baz=bax"));
 
-            service_fn_ok(move |req| {
-                let uri = req.uri();
-                assert_eq!(uri.path(), "/api/foo/bar");
-                assert_eq!(uri.query(), Some("baz=bax"));
+                        let headers = req.headers();
+                        assert_eq!(
+                            headers.get("Authorization"),
+                            Some(&HeaderValue::from_static("KakaoAK key"))
+                        );
 
-                let headers = req.headers();
-                assert_eq!(
-                    headers.get("Authorization"),
-                    Some(&HeaderValue::from_static("KakaoAK key"))
-                );
+                        called_sender.send(()).await.unwrap();
 
-                called_sender.send(()).unwrap();
-
-                Response::<Body>::new(r#"{ "bar": "foobar" }"#.into())
-            })
+                        Ok::<_, Infallible>(Response::<Body>::new(r#"{ "bar": "foobar" }"#.into()))
+                    }
+                }))
+            }
         });
 
         let server = Server::bind(&"0.0.0.0:12121".parse().unwrap())
             .serve(service)
-            .with_graceful_shutdown(shutdown_receiver)
-            .map_err(|why| panic!("{}", why));
+            .with_graceful_shutdown(async {
+                shutdown_receiver.await.unwrap();
+            });
 
-        rt.spawn(server);
+        tokio::spawn(async {
+            if let Err(e) = server.await {
+                panic!("{}", e)
+            }
+        });
 
-        let fut = request::<Foo>(
+        let resp = request::<Foo>(
             "http://localhost:12121/api",
             "/foo/bar",
             &[("baz", "bax".to_string())],
             "key",
         )
-        .inspect(|_| shutdown_sender.send(()).unwrap());
+        .await
+        .unwrap();
 
-        let resp = rt.block_on_all(fut).unwrap();
-
+        shutdown_sender.send(()).unwrap();
         called_receiver.try_recv().unwrap();
 
         assert_eq!(&resp.bar, "foobar");

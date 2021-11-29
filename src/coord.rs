@@ -1,6 +1,5 @@
 use {
     crate::{request, Address, LandLotAddress, RoadAddress, KAKAO_LOCAL_API_BASE_URL},
-    futures::prelude::*,
     serde::{de::DeserializeOwned, Deserialize},
 };
 
@@ -34,10 +33,7 @@ impl CoordRequest {
         self
     }
 
-    fn request<T: DeserializeOwned>(
-        &self,
-        api_path: &str,
-    ) -> impl Future<Item = T, Error = failure::Error> {
+    async fn request<T: DeserializeOwned>(&self, api_path: &str) -> Result<T, failure::Error> {
         request::<T>(
             &self.base_url,
             api_path,
@@ -48,28 +44,29 @@ impl CoordRequest {
             ],
             &self.app_key,
         )
+        .await
     }
 
-    pub fn get_region(&self) -> impl Future<Item = Vec<Region>, Error = failure::Error> {
+    pub async fn get_region(&self) -> Result<Vec<Region>, failure::Error> {
         static API_PATH: &'static str = "/geo/coord2regioncode.json";
 
-        self.request::<Coord2RegionResponse>(API_PATH)
-            .map(|resp| resp.documents.into_iter().map(Into::into).collect())
+        let resp = self.request::<Coord2RegionResponse>(API_PATH).await?;
+        Ok(resp.documents.into_iter().map(Into::into).collect())
     }
 
-    pub fn get_address(&self) -> impl Future<Item = Vec<Address>, Error = failure::Error> {
+    pub async fn get_address(&self) -> Result<Vec<Address>, failure::Error> {
         static API_PATH: &'static str = "/geo/coord2address.json";
 
-        self.request::<Coord2AddressResponse>(API_PATH).map(|resp| {
-            resp.documents
-                .into_iter()
-                .map(|document| Address {
-                    address: None,
-                    land_lot: document.address.map(Into::into),
-                    road: document.road_address.map(Into::into),
-                })
-                .collect()
-        })
+        let resp = self.request::<Coord2AddressResponse>(API_PATH).await?;
+        Ok(resp
+            .documents
+            .into_iter()
+            .map(|document| Address {
+                address: None,
+                land_lot: document.address.map(Into::into),
+                road: document.road_address.map(Into::into),
+            })
+            .collect())
     }
 }
 
